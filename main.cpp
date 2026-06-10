@@ -1,3 +1,4 @@
+
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -11,9 +12,12 @@
 #include <climits>
 #include <string>
 
+
 using namespace std;
 
+
 mt19937 rng(chrono::steady_clock::now().time_since_epoch().count());
+
 
 // ============================================================
 // Estructura de una solucion: permutacion + su makespan
@@ -23,24 +27,52 @@ struct Solution {
     int makespan;
 };
 
+
+// Estructura solicitada para almacenar los tiempos detallados de la programación
+struct ResultPFSP {
+    int makespan;
+    vector<vector<int>> inicio;
+    vector<vector<int>> fin;
+};
+
+
+
+
 // ============================================================
 // Calculo del makespan
 // C[i][j] = max(C[i-1][j], C[i][j-1]) + p[perm[i]][j]
 // Resultado: C[n-1][m-1]
 // ============================================================
-int calcularMakespan(const vector<int>& perm,
-                     const vector<vector<int>>& p,
-                     int n, int m) {
+ResultPFSP calcularMakespan(const vector<int>& perm,
+                            const vector<vector<int>>& p,
+                            int n, int m) {
     vector<vector<int>> C(n, vector<int>(m, 0));
+    vector<vector<int>> inicio(n, vector<int>(m, 0));
+    vector<vector<int>> fin(n, vector<int>(m, 0));
+
+
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < m; j++) {
             int prev_job  = (i > 0) ? C[i-1][j] : 0;
             int prev_mach = (j > 0) ? C[i][j-1] : 0;
-            C[i][j] = max(prev_job, prev_mach) + p[perm[i]][j];
+            
+            // El trabajo inicia en la máquina j cuando se libera la máquina
+            // Y cuando el trabajo termina en la máquina anterior (j-1)
+            inicio[i][j] = max(prev_job, prev_mach);
+            C[i][j] = inicio[i][j] + p[perm[i]][j];
+            fin[i][j] = C[i][j];
         }
     }
-    return C[n-1][m-1];
+    
+    ResultPFSP res;
+    res.makespan = C[n-1][m-1];
+    res.inicio = inicio;
+    res.fin = fin;
+    return res;
 }
+
+
+
 
 // ============================================================
 // Heuristica NEH: genera el primer fuego artificial
@@ -56,6 +88,7 @@ Solution generarSolucionNEH(const vector<vector<int>>& p, int n, int m) {
         return sa > sb;
     });
 
+
     vector<int> parcial;
     for (int k = 0; k < n; k++) {
         int trabajo = orden[k];
@@ -64,17 +97,19 @@ Solution generarSolucionNEH(const vector<vector<int>>& p, int n, int m) {
         for (int pos = 0; pos <= (int)parcial.size(); pos++) {
             vector<int> tmp = parcial;
             tmp.insert(tmp.begin() + pos, trabajo);
-            int ms = calcularMakespan(tmp, p, (int)tmp.size(), m);
+            int ms = calcularMakespan(tmp, p, (int)tmp.size(), m).makespan;
             if (ms < mejorMakespan) { mejorMakespan = ms; mejorPos = pos; }
         }
         parcial.insert(parcial.begin() + mejorPos, trabajo);
     }
 
+
     Solution s;
     s.perm = parcial;
-    s.makespan = calcularMakespan(s.perm, p, n, m);
+    s.makespan = calcularMakespan(s.perm, p, n, m).makespan;
     return s;
 }
+
 
 // ============================================================
 // Permutacion aleatoria para diversidad inicial
@@ -84,13 +119,15 @@ Solution permutacionAleatoria(const vector<vector<int>>& p, int n, int m) {
     s.perm.resize(n);
     iota(s.perm.begin(), s.perm.end(), 0);
     shuffle(s.perm.begin(), s.perm.end(), rng);
-    s.makespan = calcularMakespan(s.perm, p, n, m);
+    s.makespan = calcularMakespan(s.perm, p, n, m).makespan;
     return s;
 }
+
 
 // ============================================================
 // Operadores discretos sobre permutaciones
 // ============================================================
+
 
 // Swap: intercambia dos trabajos en posiciones i y j
 Solution aplicarSwap(const Solution& s, int n) {
@@ -101,6 +138,7 @@ Solution aplicarSwap(const Solution& s, int n) {
     swap(ns.perm[i], ns.perm[j]);
     return ns;
 }
+
 
 // Insert: extrae el trabajo en i y lo reinserta en j
 Solution aplicarInsert(const Solution& s, int n) {
@@ -115,6 +153,7 @@ Solution aplicarInsert(const Solution& s, int n) {
     return ns;
 }
 
+
 // Reverse: invierte el subsegmento [i, j] (2-opt)
 Solution aplicarReverse(const Solution& s, int n) {
     Solution ns = s;
@@ -125,11 +164,13 @@ Solution aplicarReverse(const Solution& s, int n) {
     return ns;
 }
 
+
 Solution aplicarOperador(int op, const Solution& s, int n) {
     if (op == 0) return aplicarSwap(s, n);
     if (op == 1) return aplicarInsert(s, n);
     return aplicarReverse(s, n);
 }
+
 
 // ============================================================
 // Parametros del FWA
@@ -143,13 +184,16 @@ struct Parametros {
     int MAX_ITER;
 };
 
+
 // ============================================================
 // Fireworks Algorithm para PFSP
 // ============================================================
 Solution fireworksAlgorithm(int n, int m,
                              const vector<vector<int>>& p,
                              const Parametros& params,
-                             vector<int>& convergencia) {
+                             vector<int>& convergencia,
+                             const string& nombreInstancia) {
+
 
     // Inicializacion: fw[0] = NEH, resto aleatorios
     vector<Solution> fuegos;
@@ -157,15 +201,20 @@ Solution fireworksAlgorithm(int n, int m,
     for (int i = 1; i < params.numFireworks; i++)
         fuegos.push_back(permutacionAleatoria(p, n, m));
 
+
     Solution mejor = *min_element(fuegos.begin(), fuegos.end(),
         [](const Solution& a, const Solution& b){ return a.makespan < b.makespan; });
+
 
     convergencia.clear();
     convergencia.push_back(mejor.makespan);
 
+
     uniform_int_distribution<int> opDist(0, 2);
 
+
     for (int iter = 0; iter < params.MAX_ITER; iter++) {
+
 
         int msMin = fuegos[0].makespan, msMax = fuegos[0].makespan;
         for (auto& fw : fuegos) {
@@ -173,19 +222,25 @@ Solution fireworksAlgorithm(int n, int m,
             msMax = max(msMax, fw.makespan);
         }
 
+
         vector<Solution> chispas;
 
+
         for (auto& fw : fuegos) {
+
 
             double calidad = (msMax == msMin) ? 1.0 :
                 (double)(msMax - fw.makespan + 1e-6) /
                 (double)(msMax - msMin + 1e-6);
 
+
             int numChispas = (int)(params.minSparks +
                              (params.maxSparks - params.minSparks) * calidad);
             numChispas = max(params.minSparks, min(params.maxSparks, numChispas));
 
+
             int amplitud = max(1, (int)(params.ampMax * n * (1.0 - calidad + 0.1)));
+
 
             // Chispas normales
             for (int s = 0; s < numChispas; s++) {
@@ -194,9 +249,10 @@ Solution fireworksAlgorithm(int n, int m,
                     int op = opDist(rng);
                     chispa = aplicarOperador(op, chispa, n);
                 }
-                chispa.makespan = calcularMakespan(chispa.perm, p, n, m);
+                chispa.makespan = calcularMakespan(chispa.perm, p, n, m).makespan;
                 chispas.push_back(chispa);
             }
+
 
             // Chispas gaussianas
             normal_distribution<double> gauss(0.0, 1.0);
@@ -205,39 +261,63 @@ Solution fireworksAlgorithm(int n, int m,
                 int nOps = max(1, (int)abs(gauss(rng) * n / 4.0));
                 for (int a = 0; a < nOps; a++)
                     chispa = aplicarSwap(chispa, n);
-                chispa.makespan = calcularMakespan(chispa.perm, p, n, m);
+                chispa.makespan = calcularMakespan(chispa.perm, p, n, m).makespan;
                 chispas.push_back(chispa);
             }
         }
+
 
         // Pool = fuegos + chispas
         vector<Solution> pool;
         for (auto& fw : fuegos)  pool.push_back(fw);
         for (auto& ch : chispas) pool.push_back(ch);
 
+
         sort(pool.begin(), pool.end(),
              [](const Solution& a, const Solution& b){ return a.makespan < b.makespan; });
+
 
         // Elitismo + seleccion aleatoria para diversidad
         vector<Solution> siguiente;
         siguiente.push_back(pool[0]);
 
+
         uniform_int_distribution<int> idxDist(1, (int)pool.size()-1);
         while ((int)siguiente.size() < params.numFireworks)
             siguiente.push_back(pool[idxDist(rng)]);
 
+
         fuegos = siguiente;
+
 
         Solution iterBest = *min_element(fuegos.begin(), fuegos.end(),
             [](const Solution& a, const Solution& b){ return a.makespan < b.makespan; });
         if (iterBest.makespan < mejor.makespan)
             mejor = iterBest;
 
+
         convergencia.push_back(mejor.makespan);
     }
 
+
+    // --------------------------------------------------------
+    // AGREGADO: Guardar la curva de convergencia al final del algoritmo
+    // Se genera un archivo único por instancia
+    // --------------------------------------------------------
+    string nombreArchivoConv = "convergencia_" + nombreInstancia + ".csv";
+    ofstream conv(nombreArchivoConv);
+    if (conv.is_open()) {
+        conv << "Iteracion,Makespan" << endl;
+        for (size_t i = 0; i < convergencia.size(); i++) {
+            conv << i+1 << "," << convergencia[i] << endl;
+        }
+        conv.close();
+    }
+
+
     return mejor;
 }
+
 
 // ============================================================
 // Carga de instancia desde archivo .txt
@@ -265,8 +345,10 @@ bool cargarInstancia(const string& archivo, int& n, int& m, vector<vector<int>>&
         return false;
     }
 
+
     fin >> n >> m;
     p.assign(n, vector<int>(m, 0));
+
 
     for (int i = 0; i < n; i++) {
         string linea;
@@ -276,10 +358,12 @@ bool cargarInstancia(const string& archivo, int& n, int& m, vector<vector<int>>&
                 break;
         }
 
+
         istringstream ss(linea);
         vector<int> tokens;
         int val;
         while (ss >> val) tokens.push_back(val);
+
 
         if ((int)tokens.size() == m) {
             // Formato A: directamente los m tiempos
@@ -301,9 +385,11 @@ bool cargarInstancia(const string& archivo, int& n, int& m, vector<vector<int>>&
         }
     }
 
+
     fin.close();
     return true;
 }
+
 
 // ============================================================
 // Procesa una instancia completa: 10 corridas + estadisticas
@@ -315,19 +401,24 @@ bool cargarInstancia(const string& archivo, int& n, int& m, vector<vector<int>>&
 // ============================================================
 void procesarInstancia(const string& archivo, const string& nombreInstancia) {
 
+
     int n, m;
     vector<vector<int>> p;
+
 
     cout << "\n" << string(60, '=') << "\n";
     cout << "INSTANCIA: " << nombreInstancia << "  (" << archivo << ")\n";
     cout << string(60, '=') << "\n";
+
 
     if (!cargarInstancia(archivo, n, m, p)) {
         cout << "[OMITIDA] No se encontro el archivo: " << archivo << "\n";
         return;
     }
 
+
     cout << "Trabajos: " << n << "  |  Maquinas: " << m << "\n";
+
 
     // Parametros segun tamano de instancia
     Parametros params;
@@ -337,9 +428,11 @@ void procesarInstancia(const string& archivo, const string& nombreInstancia) {
     params.ampMax       = 1.0;
     params.gaussSparks  = 5;
 
+
     if      (n <= 6)  params.MAX_ITER = 300;
     else if (n <= 12) params.MAX_ITER = 500;
     else              params.MAX_ITER = 1000;
+
 
     // Mostrar parametros utilizados (pedido en seccion 5.1)
     cout << "\nParametros utilizados:\n";
@@ -349,12 +442,14 @@ void procesarInstancia(const string& archivo, const string& nombreInstancia) {
     cout << "  Amplitud maxima     : " << params.ampMax << "\n";
     cout << "  Iteraciones maximas : " << params.MAX_ITER << "\n";
 
+
     // 10 corridas
     int runs = 10;
     vector<int> makespans;
     vector<double> tiempos;
     Solution mejorGlobal;
     mejorGlobal.makespan = INT_MAX;
+
 
     cout << "\n" << string(60, '-') << "\n";
     cout << left
@@ -365,17 +460,22 @@ void procesarInstancia(const string& archivo, const string& nombreInstancia) {
          << "Mejor secuencia\n";
     cout << string(60, '-') << "\n";
 
+
     for (int r = 0; r < runs; r++) {
         auto t0 = chrono::high_resolution_clock::now();
 
+
         vector<int> convergencia;
-        Solution sol = fireworksAlgorithm(n, m, p, params, convergencia);
+        Solution sol = fireworksAlgorithm(n, m, p, params, convergencia, nombreInstancia);
+
 
         auto t1 = chrono::high_resolution_clock::now();
         double seg = chrono::duration<double>(t1 - t0).count();
 
+
         makespans.push_back(sol.makespan);
         tiempos.push_back(seg);
+
 
         // Armar secuencia como string
         string seq = "[";
@@ -385,6 +485,7 @@ void procesarInstancia(const string& archivo, const string& nombreInstancia) {
         }
         seq += "]";
 
+
         cout << left
              << setw(8)  << (r+1)
              << setw(10) << sol.makespan
@@ -392,9 +493,11 @@ void procesarInstancia(const string& archivo, const string& nombreInstancia) {
              << setw(12) << params.MAX_ITER
              << seq << "\n";
 
+
         if (sol.makespan < mejorGlobal.makespan)
             mejorGlobal = sol;
     }
+
 
     // Tabla resumen (seccion 5.2)
     int mejorMs  = *min_element(makespans.begin(), makespans.end());
@@ -405,12 +508,14 @@ void procesarInstancia(const string& archivo, const string& nombreInstancia) {
     double desv  = sqrt(var / runs);
     double tProm = accumulate(tiempos.begin(), tiempos.end(), 0.0) / runs;
 
+
     string mejorSeq = "[";
     for (int i = 0; i < n; i++) {
         mejorSeq += "J" + to_string(mejorGlobal.perm[i]+1);
         if (i < n-1) mejorSeq += ",";
     }
     mejorSeq += "]";
+
 
     cout << "\n--- Tabla resumen (" << runs << " corridas) ---\n";
     cout << "Mejor makespan    : " << mejorMs << "\n";
@@ -419,7 +524,35 @@ void procesarInstancia(const string& archivo, const string& nombreInstancia) {
     cout << "Desv. estandar    : " << fixed << setprecision(2) << desv << "\n";
     cout << "Tiempo promedio   : " << fixed << setprecision(3) << tProm << "s\n";
     cout << "Mejor secuencia   : " << mejorSeq << "\n";
+
+
+    // --------------------------------------------------------
+    // AGREGADO: Guardar el archivo Gantt de la MEJOR solución global
+    // --------------------------------------------------------
+    ResultPFSP datosGantt = calcularMakespan(mejorGlobal.perm, p, n, m);
+    string nombreArchivoGantt = "gantt_" + nombreInstancia + ".csv";
+    ofstream gantt(nombreArchivoGantt);
+    
+    if (gantt.is_open()) {
+        gantt << "trabajo,maquina,inicio,fin,duracion" << endl;
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                // Mapeamos los índices base 0 a base 1 para que imprima J1, M1, etc.
+                gantt << "J" << (mejorGlobal.perm[i] + 1) << ","
+                    << "M" << (j + 1) << ","
+                    << datosGantt.inicio[i][j] << ","
+                    << datosGantt.fin[i][j] << ","
+                    << (datosGantt.fin[i][j] -
+                        datosGantt.inicio[i][j])
+                    << endl;
+            }
+        }
+        gantt.close();
+        cout << ">> Archivo Gantt exportado con exito: " << nombreArchivoGantt << "\n";
+    }
+    cout << "Makespan final del Gantt: " << datosGantt.makespan << endl;
 }
+
 
 // ============================================================
 // Main: procesa automaticamente las 3 instancias del proyecto
@@ -430,16 +563,23 @@ int main() {
     cout << "Grupo 4 | Algoritmo de Fuegos Artificiales\n";
     cout << "Procesando las 3 instancias...\n";
 
+
     vector<pair<string,string>> instancias;
-    instancias.push_back(make_pair("instancia1_bas1.txt",  "Pequena (5x4)" ));
-    instancias.push_back(make_pair("instancia2_car5.txt",  "Mediana (10x6)"));
-    instancias.push_back(make_pair("instancia3_reC01.txt", "Grande  (20x5)"));
+    instancias.push_back(make_pair("instancia1_bas1.txt",  "Pequena_(5x4)" ));
+    instancias.push_back(make_pair("instancia2_car5.txt",  "Mediana_(10x6)"));
+    instancias.push_back(make_pair("instancia3_reC01.txt", "Grande_(20x5)"));
+
 
     for (int i = 0; i < (int)instancias.size(); i++)
         procesarInstancia(instancias[i].first, instancias[i].second);
 
+
     cout << "\n" << string(60, '=') << "\n";
     cout << "Ejecucion completada.\n";
 
+
     return 0;
 }
+
+
+
